@@ -1,0 +1,893 @@
+---
+Title: "Assignment 2"
+Name: Leon Wu(10582390)
+---
+
+```{r}
+# Install necessary packages for data analysis and visualization
+#install.packages(c("tidyverse","ggpubr","moments","scatterplot3d","factoextra","ranger"))
+install.packages(c("tidyverse","caret","ranger","ggpubr"))
+install.packages(c("rpart","rpart.plot"))
+```
+
+```{r}
+# Load required libraries
+library(tidyverse)
+library(ggpubr)
+# library(moments)
+# library(scatterplot3d) 
+# library(factoextra)
+library(ranger)  #For random forest
+library(caret)  #Classification and Regression Training package
+
+library(rpart)
+library(rpart.plot)
+
+# Set the working directory
+# Note that you may need to change the path to your work directory
+setwd("/Users/leonfuns/Projects/ECU/data-analysis/a2.try")
+options(scipen = 999) # show all numbers
+```
+
+## ------------------------------------------------------------------
+#        Part 1 – General data preparation and cleaning (a)
+## ------------------------------------------------------------------
+```{r}
+# You may need to change/include the path of your working directory
+mydata = read.csv("HealthCareData_2024.csv", stringsAsFactors = TRUE)
+dim(mydata)
+# ```
+
+## ------------------------------------------------------------------
+#        Part 1 – General data preparation and cleaning (b)
+## ------------------------------------------------------------------
+# ```{r}
+## i. Clean the dataset based on the feedback received for Assignment 1.
+summary(mydata)
+
+mydata$AlertCategory = fct_collapse(mydata$AlertCategory, 
+  Informational = c("Informational", "Info"))
+mydata$NetworkEventType = fct_collapse(mydata$NetworkEventType, 
+  PolicyViolation = c("Policy_Violation", "PolicyViolation"))
+
+mydata$NetworkAccessFrequency[mydata$NetworkAccessFrequency == -1] = NA
+
+mydata$ResponseTime[mydata$ResponseTime > 150 ] = NA
+
+summary(mydata)
+# ```
+
+# ```{r}
+## ii. merge the ‘Regular’ and ‘Unknown’ categories together.
+mydata$NetworkInteractionType = fct_collapse(mydata$NetworkInteractionType, 
+                                  Others = c("Regular", "Unknown"))
+
+summary(mydata)
+# ```
+
+# ```{r}
+## iii. Standardising dataset.
+# Delete the System Access Rate as this column have too many NA data and it will affect 
+dat.cleaned = na.omit(mydata[,-9]);dat.cleaned
+summary(dat.cleaned)
+# ```
+
+## ------------------------------------------------------------------
+#        Part 1 – General data preparation and cleaning (c)
+## ------------------------------------------------------------------
+# ```{r}
+# Separate samples of normal and malicious events
+dat.class0 = dat.cleaned %>% filter(Classification == "Normal") # normal
+dat.class1 = dat.cleaned %>% filter(Classification == "Malicious") # malicious
+# Randomly select 9600 non-malicious and 400 malicious samples using your student
+# ID, then combine them to form a working data set
+set.seed(10582390)
+rows.train0 = sample(1:nrow(dat.class0), size = 9600, replace = FALSE)
+rows.train1 = sample(1:nrow(dat.class1), size = 400, replace = FALSE)
+# Your 10000 ‘unbalanced’ training samples
+train.class0 = dat.class0[rows.train0,] # Non-malicious samples
+train.class1 = dat.class1[rows.train1,] # Malicious samples
+mydata.ub.train = rbind(train.class0, train.class1)
+# Your 19200 ‘balanced’ training samples, i.e. 9600 normal and malicious samples each.
+set.seed(10582390)
+train.class1_2 = train.class1[sample(1:nrow(train.class1), size = 9600,
+  replace = TRUE),]
+mydata.b.train = rbind(train.class0, train.class1_2)
+# Your testing samples
+test.class0 = dat.class0[-rows.train0,]
+test.class1 = dat.class1[-rows.train1,]
+mydata.test = rbind(test.class0, test.class1)
+# ```
+
+## ------------------------------------------------------------------
+#   Part 2 – Compare the performances of different ML algorithms (a)
+## ------------------------------------------------------------------
+# ```{r}
+set.seed(10582390)
+models.list1 = c("Logistic Ridge Regression",
+  "Logistic LASSO Regression",
+  "Logistic Elastic-Net Regression")
+models.list2 = c("Classification Tree",
+  "Bagging Tree",
+  "Random Forest")
+myModels = c(sample(models.list1, size = 1),
+  sample(models.list2, size = 1))
+myModels %>% data.frame
+# ```
+
+#```{r}
+#write.csv(mydata.ub.train, "mydata.ub.train.csv")
+#write.csv(mydata.b.train, "mydata.b.train.csv")
+#write.csv(mydata.test, "mydata.test.csv")
+# write.csv(mydata, "mydata.csv")
+```
+
+```{r}
+#A sequence of lambdas
+lambdas = 10^seq(-3, 3, length = 200)
+alphas = seq(0.1,0.9,by=0.1)
+
+set.seed(10582390)
+mod.ridge.b = train(
+  Classification~.,
+  data = mydata.b.train,
+  method = "glmnet",
+  preProcess = NULL,
+  trControl = trainControl("repeatedcv", number = 10, repeats = 2),
+  tuneGrid = expand.grid(alpha = alphas, lambda = lambdas)
+)
+plot(mod.ridge.b)
+mod.ridge.b$bestTune
+```
+
+```{r}
+set.seed(10582390)
+mod.ridge.ub = train(
+  Classification~.,
+  data = mydata.ub.train,
+  method = "glmnet",
+  preProcess = NULL,
+  trControl = trainControl("repeatedcv", number = 10, repeats = 2),
+  tuneGrid = expand.grid(alpha = alphas, lambda = lambdas)
+)
+plot(mod.ridge.ub)
+mod.ridge.ub$bestTune
+```
+
+```{r}
+plot(mod.ridge.b)
+plot(mod.ridge.ub)
+```
+
+```{r}
+# Model coefficients
+coef(mod.ridge.b$finalModel, mod.ridge.b$bestTune$lambda)
+coef(mod.ridge.ub$finalModel, mod.ridge.ub$bestTune$lambda)
+```
+
+```{r}
+pred.class.b = predict(mod.ridge.b,new=mydata.test)
+pred.class.ub = predict(mod.ridge.ub,new=mydata.test)
+
+cf.b = table(relevel(pred.class.b, ref="Malicious"), 
+             relevel(mydata.test$Classification, ref="Malicious"))
+cf.ub = table(relevel(pred.class.ub, ref="Malicious"),
+             relevel(mydata.test$Classification, ref="Malicious"))
+
+prop.b = round(prop.table(cf.b, 2), digits = 3);prop.b
+prop.ub = round(prop.table(cf.ub, 2), digits = 3);prop.ub
+
+```
+
+```{r}
+confusionMatrix(cf.b,mode="everything")
+confusionMatrix(cf.ub,mode="everything")
+```
+
+## ------------------------------------------------------------------
+#                   Part 2 – RANDOM FOREST
+## ------------------------------------------------------------------
+```{r}
+mod.rf.b = ranger(
+  Classification~.,
+  data = mydata.b.train,
+  num.trees = 500,
+  mtry = 3,
+  respect.unordered.factors = TRUE,
+  seed = 10582390,
+  importance = "impurity"
+)
+mod.rf.ub = ranger(
+  Classification~.,
+  data = mydata.ub.train,
+  num.trees = 500,
+  mtry = 3,
+  respect.unordered.factors = TRUE,
+  seed = 10582390,
+  importance = "impurity"
+)
+```
+
+```{r}
+mod.rf.b
+mod.rf.ub
+```
+
+```{r}
+pred.mod.rf.b = predict(mod.rf.b, data = mydata.test);pred.mod.rf.b
+pred.mod.rf.ub = predict(mod.rf.ub, data = mydata.test);pred.mod.rf.ub
+```
+
+```{r}
+cm.b = confusionMatrix(
+  pred.mod.rf.b$predictions, 
+  mydata.test$Classification,
+  mode="everything");cm.b
+cm.ub = confusionMatrix(
+  pred.mod.rf.ub$predictions, 
+  mydata.test$Classification,
+  mode="everything");cm.ub
+```
+
+```{r}
+grid.rf = expand.grid(num.trees = c(200, 300, 400, 500),
+                      mtry = c(3:6),
+                      min.node.size = seq(2, 10, 2),
+                      replace = c(TRUE, FALSE),
+                      sample.fraction = c(0.5, 0.6, 0.7, 0.8, 1),
+                      OOB.misclass = NA,
+                      test.sens = NA, 
+                      test.spec = NA,  
+                      test.acc = NA)
+dim(grid.rf)
+grid.rf
+```
+
+```{r}
+rf.train = function(data.train) {
+  for (I in 1:nrow(grid.rf)) {
+    rf = ranger(Classification ~ .,
+                data = data.train,
+                num.trees = grid.rf$num.trees[I],
+                mtry = grid.rf$mtry[I],
+                min.node.size = grid.rf$min.node.size[I],
+                replace = grid.rf$replace[I],
+                sample.fraction = grid.rf$sample.fraction[I],
+                seed = 10582390,
+                respect.unordered.factors = "order")
+
+    grid.rf$OOB.misclass[I] = rf$prediction.error %>% round(5) * 100
+
+    pred.test = predict(rf, data = mydata.test)$predictions
+
+    test.cf = confusionMatrix(relevel(pred.test, ref="Malicious"),
+            relevel(mydata.test$Classification, ref="Malicious"))
+
+    prop.cf = test.cf$table %>% prop.table(2)
+    grid.rf$test.sens[I] = prop.cf[1,1] %>% round(5)*100      #Sensitivity
+    grid.rf$test.spec[I] = prop.cf[2,2] %>% round(5)*100      #Specificity
+    grid.rf$test.acc[I] = test.cf$overall[1] %>% round(5)*100 #Accuracy
+  }
+  return(grid.rf[order(grid.rf$OOB.misclass, decreasing = FALSE)[1:10],])
+}
+```
+
+```{r}
+rf.train(mydata.b.train)
+```
+
+```{r}
+rf.train(mydata.ub.train)
+```
+
+
+```{r}
+
+cf.b
+```
+
+
+
+
+
+
+
+
+
+```{r}
+pred.mod.rf.b.test = predict(mod.rf.b, data = mydata.test)
+pred.mod.rf.b.test$predictions
+pred.class.b = predict(mod.ridge.b, new = mydata.test)
+# pred.class.b
+# ?predict
+mod.rf.b
+mod.ridge.b
+mydata.test$Classification
+```
+
+
+
+
+
+
+
+
+
+```{r}
+set.seed(10582390)
+
+grid.rf.b = expand.grid(
+  num.trees = c(200, 300, 400, 500),
+  mtry = c(1,2,3),
+  OOB.rmse = NA,
+  test.rmse = NA
+);dim(grid.rf.b)
+grid.rf.b
+```
+
+```{r}
+rf.pred.b = predict(mydata.b.train,data=mydata.test)
+rf.rmse.b = (mydata.test$Classification)
+```
+
+
+
+
+
+
+
+```{r}
+
+df = data.frame(Actual = mydata.test$Classification, Predicted = pred.ridge.b);df
+
+ggplot(df,aes(x=Predicted,y=Actual))+
+  geom_point(size=3,colour="steelblue")+
+  xlim(0,500)+
+  #Reference line given by y=x, i.e. slope=1 and intercept=0
+  geom_abline(slope=1,
+              intercept=0,
+              colour="red",  #Colour of the line
+              linetype=2) + #Dotted line  
+  theme_minimal()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+set.seed(10582390)
+
+str(mydata.b.train)
+
+mod.mydata.lg = glm(
+  Classification~., family = "binomial", data = mydata.b.train
+);mod.mydata.lg
+summary(mod.mydata.lg)
+
+
+trainRowNum.train = createDataPartition(
+  
+)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+## --------------------------------------------------------------
+#                           Part 1
+## --------------------------------------------------------------
+
+```{r}
+# Before start backup for testing
+mydata.bk = mydata
+```
+
+```{r}
+# Identify column indices for categorical and numerical variables
+mydata.col.cat = c(2:4, 11:12, 15)
+mydata.col.num = c(1, 5:10, 13:14)
+```
+
+```{r}
+# Calculate percentages for categorical variables
+pre.cound = function(x) {
+  pre = list(); colomns = names(x)
+  for (colomn in colomns)
+  {
+    pre[[colomn]] = round(summary(x[[colomn]])/nrow(x)*100,1)
+  }
+  return(pre)
+}
+
+# Function to create boxplots with outliers highlighted
+gg.boxplot = function(x,y,z) {
+  ggplot(x, aes(y = y)) +
+    geom_boxplot(fill = "lightblue", color = "blue",
+                 outlier.size = 5, outlier.shape = 8) +
+    labs(title = "Boxplot", y = z) +
+    xlim(-1,1) + ylim(range(y)[1]-1000, range(y)[2]) + 
+    theme_minimal(base_size = 18)
+}
+
+# Function to identify outliers in a numerical vector
+outliers = function(x) {
+  IQR.x = IQR(x)
+  Q1.x.low = summary(x)[2] - 1.5 * IQR.x
+  Q3.x.upp = summary(x)[5] + 1.5 * IQR.x
+  
+  outliers.x = x[x < Q1.x.low | x > Q3.x.upp]
+  
+  outliers.per = round(length(outliers.x)/nrow(mydata)*100,1)
+  
+  c(Q1.x.low,Q3.x.upp,outliers.per,outliers.x)
+}
+
+# Remove outliers of numerical
+remove.outliers = function(x, outliers) {
+  for (out.name in names(outliers)) {
+    outliers.each = outliers[[out.name]]
+    for (i in 1:length(outliers.each)) {
+      x[[out.name]] = replace(x[[out.name]], 
+        which(x[[out.name]] == outliers.each[i]), NA)
+  }}
+  return(x)
+}
+
+# Function to export ggplot2 plots as image files
+output.img = function(x,y) {
+  ggexport(x, filename=y ,width = 1024 ,height = 768)
+}
+```
+
+
+```{r}
+# Calculate percentages for categorical variables
+pre.cound(mydata)[mydata.col.cat]
+
+# Calculate percentage NA for System Access Rate
+pre.sar = round(summary(mydata$SystemAccessRate)[7]/nrow(mydata)*100,1);pre.sar
+
+# Calculate skewness for numerical variables
+skewness(mydata[,mydata.col.num])
+```
+
+```{r}
+# Add values from 1 to 800 at column X for later use
+mydata[1] = 1:800
+```
+
+```{r}
+# Create boxplots for selected variables to see it may have some posiable outliers
+boxp.naf = gg.boxplot(mydata, mydata$NetworkAccessFrequency, "NetworkAccessFrequency")
+boxp.sr = gg.boxplot(mydata, mydata$SecurityRiskLevel, "SecurityRiskLevel")
+boxp.rt = gg.boxplot(mydata, mydata$ResponseTime, "ResponseTime")
+boxp.naf;boxp.sr;boxp.rt
+```
+
+
+```{r}
+# Identify outliers in numerical variables using (Q1,Q2) +-1.5 * IQR
+outliers.naf = outliers(mydata$NetworkAccessFrequency);outliers.naf
+outliers.sr = outliers(mydata$SecurityRiskLevel);outliers.sr
+outliers.rt = outliers(mydata$ResponseTime);outliers.rt
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Create point plots with outliers highlighted for each numerical variables
+# and save to a png file.
+ggexport(ggplot(
+  mydata, aes(x = X, y = NetworkAccessFrequency)) +
+  geom_point(size=3) + 
+  geom_point(aes(color = "red"),size=4,
+    subset(mydata,NetworkAccessFrequency < outliers.naf[1] |
+      NetworkAccessFrequency > outliers.naf[2])) + 
+  labs(title = "Point chat of NetworkAccessFrequency",
+            x = "Range", y = "NetworkAccessFrequency") +
+  scale_color_identity(name = NULL, guide = "legend", labels = "Outliers") +
+  theme_minimal(base_size = 30)+
+  scale_x_continuous(limits = c(1, 800)) +
+  theme(legend.position="top"), 
+  filename="point-plot-naf.png" ,width = 1024 ,height = 768)
+
+ggexport(ggplot(mydata, aes(x = X, y = SecurityRiskLevel)) +
+  geom_point(size=3) +
+  geom_point(aes(color = "red"),size=4,
+            subset(mydata,
+                   SecurityRiskLevel < outliers.sr[1] |
+                   SecurityRiskLevel > outliers.sr[2])) +
+  labs(title = "Point chat of SecurityRiskLevel",
+       x = "Range", y = "SecurityRiskLevel") +
+  scale_color_identity(name = NULL, guide = "legend", labels = "Outliers") +
+  theme_minimal(base_size = 30)+ 
+  scale_x_continuous(limits = c(1, 800)) +
+  scale_y_continuous(labels = scales::comma) +
+  theme(legend.position="top"), filename="point-plot-sr.png" ,width = 1024 ,height = 768)
+
+
+ggexport(ggplot(mydata, aes(x = X, y = ResponseTime)) +
+  geom_point(size=3) +
+  geom_point(aes(color = "red"),size=4,
+            subset(mydata,
+                   ResponseTime < outliers.rt[1] |
+                   ResponseTime > outliers.rt[2])) +
+  labs(title = "Point chat of ResponseTime",
+       x = "Range", y = "ResponseTime") +
+  scale_color_identity(name = NULL, guide = "legend", labels = "Outliers") +
+  ylim(-10000,120000) +
+  theme_minimal(base_size = 30)+
+  scale_x_continuous(limits = c(1, 800)) +
+  theme(legend.position="top"), filename="point-plot-rt.png" ,width = 1024 ,height = 768)
+
+ggexport(ggplot(mydata, aes(x = X, y = ResponseTime)) +
+  geom_point(size=3) +
+  geom_point(aes(color = "red"),size=4,
+            subset(mydata,
+                   ResponseTime < outliers.rt[1] |
+                   ResponseTime > outliers.rt[2])) +
+  labs(title = "Point chat of zoom in of ResponseTime",
+       x = "Range", y = "ResponseTime") +
+  scale_color_identity(name = NULL, guide = "legend", labels = "Outliers") +
+  ylim(-25,250) +
+  theme_minimal(base_size = 30)+
+  scale_x_continuous(limits = c(1, 800)) +
+  theme(legend.position="top"), filename="point-plot-rt-zin.png" ,width = 1024 ,height = 768)
+```
+
+## --------------------------------------------------------------
+#                           Part 2 - 1
+## --------------------------------------------------------------
+
+```{r}
+# Preprocess categorical variables for correct data type and names
+mydata$AlertCategory = factor(
+  mydata$AlertCategory,levels = c("Informational","Warning","Alert")
+)
+mydata$NetworkEventType[mydata$NetworkEventType == 
+                          "Policy_Violation"] = "PolicyViolation"
+mydata$SessionIntegrityCheck = as.logical(mydata$SessionIntegrityCheck)
+mydata$ResourceUtilizationFlag = as.logical(mydata$ResourceUtilizationFlag)
+rownames(mydata) = mydata$X;mydata = mydata[-1]
+```
+
+
+```{r}
+# List name and outliers for removing function
+outliers.all = list(
+  NetworkAccessFrequency = outliers.naf[4:length(outliers.naf)],
+  SecurityRiskLevel = outliers.sr[4:length(outliers.sr)],
+  ResponseTime = outliers.rt[4:length(outliers.rt)]
+  )
+# Remove outliers
+mydata = remove.outliers(mydata, outliers.all)
+
+# Display the Structure of Objects
+str(mydata); summary(mydata)
+```
+
+## --------------------------------------------------------------
+#                           Part 2 - 2
+## --------------------------------------------------------------
+
+```{r}
+#save mydata
+write.csv(mydata, "mydata.csv")
+```
+
+## --------------------------------------------------------------
+#                           Part 2 - 3
+## --------------------------------------------------------------
+
+```{r}
+# Extract numerical variables and handle missing values
+mydata.col.num.c = c(4:9, 12:13, 14)
+mydata.num.c = na.omit(mydata[, mydata.col.num.c]);mydata.num.c
+summary(mydata.num.c)
+```
+
+```{r}
+# Perform Principal Component Analysis (PCA) without Classification column
+pca.mydata = prcomp(
+  mydata.num.c[,1:length(mydata.num.c)-1],scale = TRUE);pca.mydata
+```
+
+```{r}
+#Show the individual and cumulative proportion of variance explained.
+round(summary(pca.mydata)$importance[,1:3],3)
+```
+
+```{r}
+# Display the rotation matrix for the first three principal components
+pca.rot.mydata.pc1.2.3 = round(pca.mydata$rotation,3);pca.rot.mydata.pc1.2.3
+```
+
+```{r}
+#Extract the eigenvalues and proportions explained
+varexp.mydata = summary(pca.mydata)$importance; varexp.mydata
+# Create a data frame for plotting the scree plot
+df.mydata = data.frame(
+  Variance = varexp.mydata[1,]^2, 
+  PC = 1:length(pca.mydata$sdev)
+  );df.mydata
+# Create the scree plot
+screep.mydata = ggplot(
+  df.mydata,aes(PC,Variance))+
+  geom_line(colour = "steelblue",linewidth = 2,linetype = 2)+
+  geom_point(size = 8)+theme_minimal(base_size = 30)+
+  labs(title="Scree plot") +xlab("Principal Component")+
+  ylab("Variance")+scale_x_discrete(
+    limits = paste("PC",1:length(pca.mydata$sdev),sep = ""))+
+  annotate("text",x = c(1:8)+0.15,y = varexp.mydata[1,]^2+0.3,
+    label = paste(round(varexp.mydata[2,]*100,1), 
+      "%",sep = ""),size=10)
+```
+
+## --------------------------------------------------------------
+#                           Part 2 - 4
+## --------------------------------------------------------------
+
+```{r}
+# Create a biplot for the first two principal components
+bip.pca.mydata = fviz_pca_biplot(
+  pca.mydata,axes = c(1,2),
+  #Outline colour of the shape
+  col.ind=mydata.num.c$Classification,  
+  fill.ind=mydata.num.c$Classification,
+  alpha=0.5,pointsize=2,pointshape=21,
+  #Colour of the variable labels
+  col.var="red",
+  #Show the labels for the variables only
+  label="var",
+  #Add ellipses to the plot
+  addEllipses=TRUE,legend.title=list(
+   colour="Classification",
+   fill="Classification",
+   alpha="Classification"),
+  labelsize = 5,
+)+theme_minimal(base_size = 30)
+```
+
+## --------------------------------------------------------------
+#                           Part 2 - 5
+## --------------------------------------------------------------
+
+```{r}
+# Extract PCA scores for the first two principal components
+pc1.mydata = pca.mydata$x[, 1]
+pc2.madata = pca.mydata$x[, 2]
+# Create a data frame with PCA scores and classification labels
+df.mydata.pc1.2 = data.frame(
+  PC1 = pc1.mydata,
+  PC2 = pc2.madata,
+  Classification = mydata.num.c$Classification
+)
+
+# Create two box plot projections onto PC1 and PC2 with violin on it to
+# compare which one is more suitable for identification of Malicious events
+proj.pc1 = ggplot(
+  df.mydata.pc1.2,aes(x=Classification,y=PC1,colour=Classification,fill=Classification)) +
+  geom_boxplot(width=0.2,size=1.25,alpha=0.5,outlier.size=5,outlier.shape=8) +  
+  geom_violin(alpha=0.3,trim=FALSE) +
+  theme_pubclean(base_size=14) +
+  labs(x="Classification",y="PC1") +
+  theme(axis.ticks.x=element_blank(),
+  axis.text.x=element_blank()); proj.pc1
+
+proj.pc2 = ggplot(
+  df.mydata.pc1.2,aes(x=Classification,y=PC2,colour=Classification,fill=Classification)) +
+  geom_boxplot(width=0.2,size=1.25,alpha=0.5,outlier.size=5,outlier.shape=8) +  
+  geom_violin(alpha=0.3,trim=FALSE) +
+  theme_pubclean(base_size=14) +
+  labs(x="Classification",y="PC2") +
+  theme(axis.ticks.x=element_blank(),
+  axis.text.x=element_blank()); proj.pc2
+```
+
+```{r}
+# Arrange and export multiple plots
+multiplot.box = ggarrange(
+  boxp.naf,boxp.sr,boxp.rt + theme(legend.position="right"),  
+  labels = c("A", "B", "C"),ncol = 3, nrow = 1);multiplot.box
+
+multiplot.proj = ggarrange(
+  proj.pc1,proj.pc2 + theme(legend.position="top"),  
+  labels = c("Project to PC1", "Project to PC2"),
+  ncol = 1, nrow = 2);multiplot.point.proj
+
+# Export the biplot as a PNG image
+output.img(multiplot.box, "box-plot.png")
+output.img(screep.mydata, "scree-plot.png")
+output.img(bip.pca.mydata, "bi-plot.png")
+output.img(multiplot.proj, "proj-plot.png")
+```
+
+## --------------------------------------------------------------
+#                               End
+## --------------------------------------------------------------
+
+
+```{r}
+
+# Create point plots for projections onto PC1 and PC2, colored by classification
+proj.pc1 = ggplot(
+  df.mydata.pc1.2,
+  aes(
+    x = PC1,
+    y = Classification,
+    color = Classification
+  )) + 
+  geom_point(
+  position = position_jitter(
+    0.1
+  ),
+  alpha = 0.5,
+  size = 4
+) + 
+  labs(
+    title = "Projection to PC1",
+    x = "PC1"
+  ) +
+  theme_minimal(base_size = 25);proj.pc1
+
+proj.pc2 = ggplot(
+  df.mydata.pc1.2,
+  aes(
+    x = PC2,
+    y = Classification,
+    color = Classification
+  )) + 
+  geom_point(
+  position = position_jitter(
+    0.1
+  ),
+  alpha = 0.5,
+  size = 4
+) + 
+  labs(
+    title = "Projection to PC2",
+    x = "PC2"
+  ) +
+  theme_minimal(base_size = 25);proj.pc2
+
+```
+
+
+```{r}
+mydata
+```
+
+
+```{r}
+#rm(dtv.max, dtv.min)
+
+dtvi = summary(mydata$DataTransferVolume_IN);dtvi
+dtvo = summary(mydata$DataTransferVolume_OUT);dtvo
+
+names(dtvi)
+
+dtvi.min = dtvi[1];dtvi.min
+dtvi.max = dtvi[6];dtvi.max
+dtvo.min = dtvo[1];dtvo.min
+dtvo.max = dtvo[6];dtvo.max
+```
+
+```{r}
+rt.fre = data.frame(
+  mydata$DataTransferVolume_IN,
+  mydata$DataTransferVolume_OUT,
+  mydata$ResponseTime
+);rt.fre
+
+acc.fre.g = ggplot(acc.fre,
+                   aes(x = mydata.Classification,
+                       y = mydata.NetworkAccessFrequency,
+                       colour = mydata.Classification,
+                       fill = mydata.Classification)) +
+           geom_boxplot(width=0.5,
+                        size = 1.5,
+                        alpha = 0.5,
+                        outlier.size = 5,
+                        outlier.shape = 9
+                      );acc.fre.g
+                   
+```
+
+```{r}
+#data.frame(percentage) %>%
+#table(percentage$AlertCategory)
+test = data.frame(percentage$AlertCategory);test
+test2 = matrix(percentage$AlertCategory);test2
+test3 = cbind(percentage$AlertCategory, percentage$NetworkEventType);test3
+```
+
+```{r}
+mydata$NetworkAccessFrequency
+
+```
+
+```{r}
+#print(test)
+result = rbind(CategoricalFeature, test)
+```
+
+```{r}
+#rm (AlertCategoryPer, colomn, I)
+#?data.frame
+#?matrix
+#?apply
+#?replace
+rm(percentage, result, test, test2, test3, acc.fre, acc.prop, apply.columns, colomn, colomns, colomns.categorical, cre.net, dtvi, dtvi.max, dtvi.min, dtvo, dtvo.max, dtvo.min, rt.frec, rt.prop, srl.prop)
+```
+
+na.omi
+loading
+pca
+
+
