@@ -180,8 +180,8 @@ prop.ub = round(prop.table(cf.ub, 2), digits = 3);prop.ub
 ```
 
 ```{r}
-confusionMatrix(cf.b,mode="everything")
-confusionMatrix(cf.ub,mode="everything")
+cm.cf.b = confusionMatrix(cf.b,mode="everything");cm.cf.b
+cm.cf.ub = confusionMatrix(cf.ub,mode="everything");cm.cf.ub
 ```
 
 ## ------------------------------------------------------------------
@@ -235,15 +235,27 @@ cm.ub = confusionMatrix(rf.ub.t, mode="everything");cm.ub
 ```
 
 ```{r}
-grid.rf = expand.grid(num.trees = c(200, 300, 400, 500),
-                      mtry = c(3:11),
+grid.rf = expand.grid(num.trees = c(300, 400, 500), # c(200, 300, 400, 500),
+                      mtry = c(3:5), # mtry = c(3:11)
                       min.node.size = seq(2, 10, 2),
                       replace = c(TRUE, FALSE),
                       sample.fraction = c(0.5, 0.6, 0.7, 0.8, 1),
                       OOB.misclass = NA,
-                      test.cf = NA)
+                      b_accuracy = NA,
+                      specificity = NA,
+                      precision = NA,
+                      reccall = NA,
+                      f1_score = NA,
+                      tp = NA,
+                      fp = NA,
+                      fn = NA,
+                      tn = NA)
 dim(grid.rf)
 grid.rf
+cm.cf.b$table[1,1] # TP
+cm.cf.b$table[2,1] # FP
+cm.cf.b$table[1,2] # FN
+cm.cf.b$table[2,2] # TN
 ```
 
 ```{r}
@@ -263,19 +275,29 @@ rf.train = function(data.train) {
 
     pred.test = predict(rf, data = mydata.test)$predictions
 
-    grid.rf$test.cf[I] = confusionMatrix(relevel(pred.test, ref="Malicious"),
-                        relevel(mydata.test$Classification, ref="Malicious"))
+    test.cf = confusionMatrix(relevel(pred.test, ref="Malicious"),
+              relevel(mydata.test$Classification, ref="Malicious"))
+    
+    grid.rf$accuracy[I] = test.cf$byClass["Balanced Accuracy"]
+    grid.rf$specificity[I] = test.cf$byClass["Specificity"]
+    grid.rf$precision[I] = test.cf$byClass["Precision"]
+    grid.rf$reccall[I] = test.cf$byClass["Recall"]
+    grid.rf$f1_score[I] = test.cf$byClass["F1"]
+    grid.rf$tp[I] = test.cf$table[1,1]
+    grid.rf$fp[I] = test.cf$table[2,1]
+    grid.rf$fn[I] = test.cf$table[1,2]
+    grid.rf$tn[I] = test.cf$table[2,2]
   }
   return(grid.rf[order(grid.rf$OOB.misclass, decreasing = FALSE)[1:10],])
 }
 ```
 
 ```{r}
-mod.rf.b.t = rf.train(mydata.b.train)
+train.rf.b = rf.train(mydata.b.train);train.rf.b
 ```
 
 ```{r}
-mod.rf.ub.t = rf.train(mydata.ub.train)
+train.rf.ub.t = rf.train(mydata.ub.train);train.rf.ub.t
 ```
 
 
@@ -284,6 +306,7 @@ mod.rf.ub.t = rf.train(mydata.ub.train)
 ```{r}
 # cf.ub = confusionMatrix(rf.pred.ub$predictions, mydata.test$Classification)
 test.cf
+train.rf.b$test.cf
 options(scipen = 999)
 mod.ridge.b
 plot(mod.ridge.b$bestTune)
@@ -291,6 +314,16 @@ plot(lambdas)
 plot(alphas)
 grid.rf
 ggplot
+str(cm.cf.b)
+cm.cf.b$table
+cm.cf.b$table[1,1] # TP
+cm.cf.b$table[2,1] # FP
+cm.cf.b$table[1,2] # FN
+cm.cf.b$table[2,2] # TN
+cm.cf.b$table[,2]
+cm.cf.b$table[2,]
+grid.rf$accuracy[1] = cm.cf.b$table[1:2] ;grid.rf$accuracy
+
 ```
 
 ```{r}
