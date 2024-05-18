@@ -136,7 +136,6 @@ mod.ridge.b = train(
   trControl = trainControl("repeatedcv", number = 10, repeats = 2),
   tuneGrid = expand.grid(alpha = alphas, lambda = lambdas)
 )
-plot(mod.ridge.b)
 mod.ridge.b$bestTune
 ```
 
@@ -150,13 +149,25 @@ mod.ridge.ub = train(
   trControl = trainControl("repeatedcv", number = 10, repeats = 2),
   tuneGrid = expand.grid(alpha = alphas, lambda = lambdas)
 )
-plot(mod.ridge.ub)
 mod.ridge.ub$bestTune
 ```
 
 ```{r}
-plot(mod.ridge.b)
-plot(mod.ridge.ub)
+ggplot(mod.ridge.b$results, aes(x = lambda, y = Accuracy, color = factor(alpha))) +
+    geom_point() + geom_line() + scale_x_log10() +
+    labs(title = "Elastic-Net Tuning: Balanced Training Set",
+         x = "Lambda (log scale)",
+         y = "Accuracy",
+         color = "Alpha") +
+    theme_minimal()
+
+ggplot(mod.ridge.ub$results, aes(x = lambda, y = Accuracy, color = factor(alpha))) +
+    geom_point() + geom_line() + scale_x_log10() +
+    labs(title = "Elastic-Net Tuning: Unbalanced Training Set",
+         x = "Lambda (log scale)",
+         y = "Accuracy",
+         color = "Alpha") +
+    theme_minimal()
 ```
 
 ```{r}
@@ -278,7 +289,7 @@ rf.train = function(data.train) {
     test.cf = confusionMatrix(relevel(pred.test, ref="Malicious"),
               relevel(mydata.test$Classification, ref="Malicious"))
     
-    grid.rf$accuracy[I] = test.cf$byClass["Balanced Accuracy"]
+    grid.rf$b_accuracy[I] = test.cf$byClass["Balanced Accuracy"]
     grid.rf$specificity[I] = test.cf$byClass["Specificity"]
     grid.rf$precision[I] = test.cf$byClass["Precision"]
     grid.rf$reccall[I] = test.cf$byClass["Recall"]
@@ -300,7 +311,12 @@ train.rf.b = rf.train(mydata.b.train);train.rf.b
 train.rf.ub.t = rf.train(mydata.ub.train);train.rf.ub.t
 ```
 
+```{r}
+train.rf.b
 
+cm.vec = c(train.rf.b[1,12],train.rf.b[1,14],train.rf.b[1,13],train.rf.b[1,15])
+cm.rf.b = matrix
+```
 
 
 ```{r}
@@ -323,62 +339,11 @@ cm.cf.b$table[2,2] # TN
 cm.cf.b$table[,2]
 cm.cf.b$table[2,]
 grid.rf$accuracy[1] = cm.cf.b$table[1:2] ;grid.rf$accuracy
-
 ```
 
 ```{r}
-
-# df = data.frame(Actual = mydata.test$Classification, Predicted = pred.class.b);df
-
-ggplot(df,aes(x=Predicted,y=Actual))+
-  geom_point(size=3,colour="steelblue")+
-  xlim(0,10000)+
-  #Reference line given by y=x, i.e. slope=1 and intercept=0
-  geom_abline(slope=1,
-              intercept=0,
-              colour="red",  #Colour of the line
-              linetype=2) + #Dotted line  
-  theme_minimal()
-
+save.image(file = "workspace.RData")
 ```
 
 
-
-
-
-
-
-
-
-```{r}
-
-df = data.frame(Actual = mydata.test$Classification, Predicted = pred.class.b);df
-
-ggplot(df,aes(x=Predicted,y=Actual))+
-  geom_point(size=3,colour="steelblue")+
-
-  #Reference line given by y=x, i.e. slope=1 and intercept=0
-  geom_abline(slope=1,
-              intercept=0,
-              colour="red",  #Colour of the line
-              linetype=2) + #Dotted line  
-  theme_minimal()
-
-```
-
-```{r}
-
-df = data.frame(Actual = mydata.test$Classification, Predicted = pred.class.b);df
-
-ggplot(df,aes(x=Predicted,y=Actual))+
-  geom_point(size=3,colour="steelblue")+
-  xlim(0,10000)+
-  #Reference line given by y=x, i.e. slope=1 and intercept=0
-  geom_abline(slope=1,
-              intercept=0,
-              colour="red",  #Colour of the line
-              linetype=2) + #Dotted line  
-  theme_minimal()
-
-```
 

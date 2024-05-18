@@ -5,9 +5,7 @@ Name: Leon Wu(10582390)
 
 ```{r}
 # Install necessary packages for data analysis and visualization
-#install.packages(c("tidyverse","ggpubr","moments","scatterplot3d","factoextra","ranger"))
 install.packages(c("tidyverse","caret","ranger","ggpubr"))
-install.packages(c("rpart","rpart.plot"))
 ```
 
 ```{r}
@@ -25,7 +23,7 @@ library(rpart.plot)
 
 # Set the working directory
 # Note that you may need to change the path to your work directory
-setwd("/Users/leonfuns/Projects/ECU/data-analysis/a2-data/a2")
+setwd("/Users/leonfuns/Projects/ECU/data-analysis/a2-data/a2.try")
 options(scipen = 999) # show all numbers
 ```
 
@@ -122,13 +120,8 @@ myModels %>% data.frame
 # write.csv(mydata, "mydata.csv")
 ```
 
-
-
-## ------------------------------------------------------------------
-#           Part 1 – Logistic Elastic-Net Regression
-## ------------------------------------------------------------------
 ```{r}
-#A sequence of lambdas and alphas
+#A sequence of lambdas
 lambdas = 10^seq(-3, 3, length = 100)
 alphas = seq(0.1,0.9,by=0.1)
 
@@ -196,8 +189,8 @@ prop.ub = round(prop.table(cf.ub, 2), digits = 3);prop.ub
 ```
 
 ```{r}
-confusionMatrix(cf.b,mode="everything")
-confusionMatrix(cf.ub,mode="everything")
+cm.cf.b = confusionMatrix(cf.b,mode="everything");cm.cf.b
+cm.cf.ub = confusionMatrix(cf.ub,mode="everything");cm.cf.ub
 ```
 
 ## ------------------------------------------------------------------
@@ -251,13 +244,22 @@ cm.ub = confusionMatrix(rf.ub.t, mode="everything");cm.ub
 ```
 
 ```{r}
-grid.rf = expand.grid(num.trees = c(200, 300, 400, 500),
-                      mtry = c(3:11),
+grid.rf = expand.grid(num.trees = c(300, 400, 500), # c(200, 300, 400, 500),
+                      mtry = c(3:5), # mtry = c(3:11)
                       min.node.size = seq(2, 10, 2),
                       replace = c(TRUE, FALSE),
                       sample.fraction = c(0.5, 0.6, 0.7, 0.8, 1),
                       OOB.misclass = NA,
-                      test.cf = NA)
+                      accuracy = NA,
+                      b_accuracy = NA,
+                      specificity = NA,
+                      precision = NA,
+                      reccall = NA,
+                      f1_score = NA,
+                      tp = NA,
+                      fp = NA,
+                      fn = NA,
+                      tn = NA)
 dim(grid.rf)
 grid.rf
 ```
@@ -279,8 +281,18 @@ rf.train = function(data.train) {
 
     pred.test = predict(rf, data = mydata.test)$predictions
 
-    grid.rf$test.cf[I] = confusionMatrix(relevel(pred.test, ref="Malicious"),
-                        relevel(mydata.test$Classification, ref="Malicious"))
+    test.cf = confusionMatrix(relevel(pred.test, ref="Malicious"),
+              relevel(mydata.test$Classification, ref="Malicious"))
+    
+    grid.rf$accuracy[I] = test.cf$byClass["Balanced Accuracy"]
+    grid.rf$specificity[I] = test.cf$byClass["Specificity"]
+    grid.rf$precision[I] = test.cf$byClass["Precision"]
+    grid.rf$reccall[I] = test.cf$byClass["Recall"]
+    grid.rf$f1_score[I] = test.cf$byClass["F1"]
+    grid.rf$tp[I] = test.cf$table[1,1]
+    grid.rf$fp[I] = test.cf$table[1,2]
+    grid.rf$fn[I] = test.cf$table[2,1]
+    grid.rf$tn[I] = test.cf$table[2,2]
   }
   return(grid.rf[order(grid.rf$OOB.misclass, decreasing = FALSE)[1:10],])
 }
@@ -294,89 +306,55 @@ train.rf.b = rf.train(mydata.b.train);train.rf.b
 train.rf.ub.t = rf.train(mydata.ub.train);train.rf.ub.t
 ```
 
-
-
+```{r}
+train.rf.b;train.rf.ub.t
+```
 
 ```{r}
-# cf.ub = confusionMatrix(rf.pred.ub$predictions, mydata.test$Classification)
-test.cf
+confusion.matrix = function(train.rf){
+  cm.vec = c(train.rf[1,12],train.rf[1,13],train.rf[1,14],train.rf[1,15])
+  cm.rf = matrix(cm.vec, nrow = 2, byrow = TRUE)
+  rownames(cm.rf) = c("Malicious","Normal")
+  colnames(cm.rf) = c("Malicious","Normal")
+  cm.rf
+}
+```
+
+```{r}
+cm.rf.b = confusion.matrix(train.rf.b)
+cm.rf.ub = confusion.matrix(train.rf.ub.t)
+
+cm.rf.b.r = round(prop.table(cm.rf.b, 2), digits = 3)
+cm.rf.ub.r = round(prop.table(cm.rf.ub, 2), digits = 3)
+
+cm.rf.b;cm.rf.ub;cm.rf.b.r;cm.rf.ub.r
+```
+
+```{r}
 options(scipen = 999)
-mod.ridge.b
-plot(mod.ridge.b$bestTune)
-plot(lambdas)
-plot(alphas)
-grid.rf
-ggplot
-```
 
-```{r}
+cm.cf.b$table
+cm.cf.b$table[1,1] # TP
+cm.cf.b$table[2,1] # FN
+cm.cf.b$table[1,2] # FP
+cm.cf.b$table[2,2] # TN
 
-# df = data.frame(Actual = mydata.test$Classification, Predicted = pred.class.b);df
+train.rf.b$new.fp = train.rf.b$fn
+train.rf.b$fn = train.rf.b$fp
+train.rf.b$fp = train.rf.b$new.fp
+train.rf.b = train.rf.b[-16]
 
-mod.ridge.b
+train.rf.ub.t$new.fp = train.rf.ub.t$fn
+train.rf.ub.t$fn = train.rf.ub.t$fp
+train.rf.ub.t$fp = train.rf.ub.t$new.fp
+train.rf.ub.t = train.rf.ub.t[-16]
 
-df.ridge.b = data.frame(mod.ridge.b$results['Accuracy'],
-                        mod.ridge.b$results['lambda']);df.ridge.b
-```
-
-```{r}
-ggplot(df.ridge.b,aes(x=lambda,y=Accuracy))+
-  geom_point(size=1,colour="steelblue")+
-  xlim(-2.5,5) + ylim(0.75,0.9) +
-  #Reference line given by y=x, i.e. slope=1 and intercept=0
-  geom_abline(slope=1,
-              intercept=0,
-              colour="red",  #Colour of the line
-              linetype=2) + #Dotted line  
-  theme_minimal()
-
-```
-
-```{r}
-ggplot(mod.ridge.b$results, aes(x = lambda, y = Accuracy, color = factor(alpha))) +
-    geom_point() +
-    geom_line() +
-    scale_x_log10() +
-    labs(title = "Elastic-Net Tuning: Balanced Training Set",
-         x = "Lambda (log scale)",
-         y = "Accuracy",
-         color = "Alpha") +
-    theme_minimal()
+save.image(file = "workspace.RData")
+load("workspace.RData")
 ```
 
 
 
 
 
-```{r}
-results.b
-df = data.frame(Actual = mydata.test$Classification, Predicted = pred.class.b);df
-
-ggplot(df,aes(x=Predicted,y=Actual))+
-  geom_point(size=3,colour="steelblue")+
-
-  #Reference line given by y=x, i.e. slope=1 and intercept=0
-  geom_abline(slope=1,
-              intercept=0,
-              colour="red",  #Colour of the line
-              linetype=2) + #Dotted line  
-  theme_minimal()
-
-```
-
-```{r}
-
-df = data.frame(Actual = mydata.test$Classification, Predicted = pred.class.b);df
-
-ggplot(df,aes(x=Predicted,y=Actual))+
-  geom_point(size=3,colour="steelblue")+
-  xlim(0,10000)+
-  #Reference line given by y=x, i.e. slope=1 and intercept=0
-  geom_abline(slope=1,
-              intercept=0,
-              colour="red",  #Colour of the line
-              linetype=2) + #Dotted line  
-  theme_minimal()
-
-```
 
