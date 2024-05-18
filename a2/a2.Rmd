@@ -5,6 +5,7 @@ Name: Leon Wu(10582390)
 
 ```{r}
 # Install necessary packages for data analysis and visualization
+#install.packages(c("tidyverse","ggpubr","moments","scatterplot3d","factoextra","ranger"))
 install.packages(c("tidyverse","caret","ranger","ggpubr"))
 ```
 
@@ -18,12 +19,9 @@ library(ggpubr)
 library(ranger)  #For random forest
 library(caret)  #Classification and Regression Training package
 
-library(rpart)
-library(rpart.plot)
-
 # Set the working directory
 # Note that you may need to change the path to your work directory
-setwd("/Users/leonfuns/Projects/ECU/data-analysis/a2-data/a2.try")
+setwd("/Users/leonfuns/Projects/ECU/data-analysis/a2-data/a2")
 options(scipen = 999) # show all numbers
 ```
 
@@ -218,8 +216,7 @@ mod.rf.ub = ranger(
 ```
 
 ```{r}
-mod.rf.b
-mod.rf.ub
+mod.rf.b;mod.rf.ub
 ```
 
 ```{r}
@@ -284,16 +281,18 @@ rf.train = function(data.train) {
     test.cf = confusionMatrix(relevel(pred.test, ref="Malicious"),
               relevel(mydata.test$Classification, ref="Malicious"))
     
-    grid.rf$accuracy[I] = test.cf$byClass["Balanced Accuracy"]
+    grid.rf$accuracy[I] = test.cf$overall["Accuracy"]
+    grid.rf$b_accuracy[I] = test.cf$byClass["Balanced Accuracy"]
     grid.rf$specificity[I] = test.cf$byClass["Specificity"]
     grid.rf$precision[I] = test.cf$byClass["Precision"]
     grid.rf$reccall[I] = test.cf$byClass["Recall"]
     grid.rf$f1_score[I] = test.cf$byClass["F1"]
     grid.rf$tp[I] = test.cf$table[1,1]
-    grid.rf$fp[I] = test.cf$table[1,2]
-    grid.rf$fn[I] = test.cf$table[2,1]
+    grid.rf$fp[I] = test.cf$table[2,1]
+    grid.rf$fn[I] = test.cf$table[1,2]
     grid.rf$tn[I] = test.cf$table[2,2]
   }
+  #Return top 10 sorted results by the OOB misclassification error
   return(grid.rf[order(grid.rf$OOB.misclass, decreasing = FALSE)[1:10],])
 }
 ```
@@ -312,7 +311,7 @@ train.rf.b;train.rf.ub.t
 
 ```{r}
 confusion.matrix = function(train.rf){
-  cm.vec = c(train.rf[1,12],train.rf[1,13],train.rf[1,14],train.rf[1,15])
+  cm.vec = c(train.rf[1,13],train.rf[1,15],train.rf[1,14],train.rf[1,16])
   cm.rf = matrix(cm.vec, nrow = 2, byrow = TRUE)
   rownames(cm.rf) = c("Malicious","Normal")
   colnames(cm.rf) = c("Malicious","Normal")
@@ -331,27 +330,92 @@ cm.rf.b;cm.rf.ub;cm.rf.b.r;cm.rf.ub.r
 ```
 
 ```{r}
-options(scipen = 999)
+train.rf.b$rownum = rownames(train.rf.b)
 
+ggplot(train.rf.b, 
+       aes(x = rownum, y = OOB.misclass, color = as.factor(num.trees), 
+           shape = as.factor(min.node.size), group = 1)) + geom_point(size = 3) +
+       geom_line() +
+       geom_text(aes(label = paste("mtry:", as.character(mtry))), vjust = 1.5, size = 3) +
+       labs(title = "Random Forest: Hyperparameter Tuning/Search Strategy for balance dataset",
+       x = "Top 10 Hyperparameter Tuning/Search Grid", 
+       y = "OOB misclassification error") +
+  theme_bw()
+```
+
+
+```{r}
+train.rf.ub.t$rownum = rownames(train.rf.ub.t)
+
+ggplot(train.rf.ub.t, 
+       aes(x = rownum, y = OOB.misclass, color = as.factor(num.trees), 
+           shape = as.factor(min.node.size), group = 1)) + geom_point(size = 3) +
+       geom_line() +
+       geom_text(aes(label = paste("mtry:", as.character(mtry))), vjust = 1.5, size = 3) +
+       labs(title = "Random Forest: Hyperparameter Tuning/Search Strategy for unbalance dataset",
+       x = "Top 10 Hyperparameter Tuning/Search Grid", 
+       y = "OOB misclassification error") +
+  theme_bw()
+```
+
+```{r}
+options(scipen = 999)
+# ?geom_line()
 cm.cf.b$table
 cm.cf.b$table[1,1] # TP
-cm.cf.b$table[2,1] # FN
-cm.cf.b$table[1,2] # FP
+cm.cf.b$table[2,1] # FP
+cm.cf.b$table[1,2] # FN
 cm.cf.b$table[2,2] # TN
-
-train.rf.b$new.fp = train.rf.b$fn
-train.rf.b$fn = train.rf.b$fp
-train.rf.b$fp = train.rf.b$new.fp
-train.rf.b = train.rf.b[-16]
-
-train.rf.ub.t$new.fp = train.rf.ub.t$fn
-train.rf.ub.t$fn = train.rf.ub.t$fp
-train.rf.ub.t$fp = train.rf.ub.t$new.fp
-train.rf.ub.t = train.rf.ub.t[-16]
+?confusionMatrix
+summary(mydata.test)
 
 save.image(file = "workspace.RData")
 load("workspace.RData")
 ```
+
+```{r}
+#A sequence of lambdas
+lambdas = 10^seq(-3, 3, length = 100)
+alphas = seq(0.1,0.9,by=0.1)
+
+set.seed(10582390)
+mod.ridge.b.test = train(
+  Classification~.,
+  data = mydata.b.train,
+  method = "glmnet",
+  preProcess = c("center", "scale"),
+  trControl = trainControl("repeatedcv", number = 10, repeats = 2),
+  tuneGrid = expand.grid(alpha = alphas, lambda = lambdas)
+)
+```
+
+```{r}
+set.seed(10582390)
+mod.ridge.ub.test = train(
+  Classification~.,
+  data = mydata.ub.train,
+  method = "glmnet",
+  preProcess = c("center", "scale"),
+  trControl = trainControl("repeatedcv", number = 10, repeats = 2),
+  tuneGrid = expand.grid(alpha = alphas, lambda = lambdas)
+)
+mod.ridge.b.test$bestTune;mod.ridge.ub.test$bestTune
+```
+
+```{r}
+pred.class.b.test = predict(mod.ridge.b,new=mydata.test)
+pred.class.ub.test = predict(mod.ridge.ub,new=mydata.test)
+
+cf.b.test = table(relevel(pred.class.b.test, ref="Malicious"), 
+             relevel(mydata.test$Classification, ref="Malicious"))
+cf.ub.test = table(relevel(pred.class.ub.test, ref="Malicious"),
+             relevel(mydata.test$Classification, ref="Malicious"))
+
+prop.b.test = round(prop.table(cf.b.test, 2), digits = 3);prop.b.test
+prop.ub.test = round(prop.table(cf.ub.test, 2), digits = 3);prop.ub.test
+
+```
+
 
 
 

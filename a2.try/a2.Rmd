@@ -7,7 +7,6 @@ Name: Leon Wu(10582390)
 # Install necessary packages for data analysis and visualization
 #install.packages(c("tidyverse","ggpubr","moments","scatterplot3d","factoextra","ranger"))
 install.packages(c("tidyverse","caret","ranger","ggpubr"))
-install.packages(c("rpart","rpart.plot"))
 ```
 
 ```{r}
@@ -67,7 +66,8 @@ summary(mydata)
 
 # ```{r}
 ## iii. Standardising dataset.
-# Delete the System Access Rate as this column have too many NA data and it will affect 
+# Delete the System Access Rate, as this column has too many NA data, 
+# and it is a weak discriminator
 dat.cleaned = na.omit(mydata[,-9]);dat.cleaned
 summary(dat.cleaned)
 # ```
@@ -136,7 +136,6 @@ mod.ridge.b = train(
   trControl = trainControl("repeatedcv", number = 10, repeats = 2),
   tuneGrid = expand.grid(alpha = alphas, lambda = lambdas)
 )
-mod.ridge.b$bestTune
 ```
 
 ```{r}
@@ -149,25 +148,27 @@ mod.ridge.ub = train(
   trControl = trainControl("repeatedcv", number = 10, repeats = 2),
   tuneGrid = expand.grid(alpha = alphas, lambda = lambdas)
 )
-mod.ridge.ub$bestTune
+mod.ridge.b$bestTune;mod.ridge.ub$bestTune
 ```
 
 ```{r}
-ggplot(mod.ridge.b$results, aes(x = lambda, y = Accuracy, color = factor(alpha))) +
+gg.en.b = ggplot(mod.ridge.b$results, aes(x = lambda, y = Accuracy, color = factor(alpha))) +
     geom_point() + geom_line() + scale_x_log10() +
-    labs(title = "Elastic-Net Tuning: Balanced Training Set",
+    labs(title = "Elastic-Net Tuning: Balanced Data Set",
          x = "Lambda (log scale)",
          y = "Accuracy",
          color = "Alpha") +
     theme_minimal()
 
-ggplot(mod.ridge.ub$results, aes(x = lambda, y = Accuracy, color = factor(alpha))) +
+gg.en.ub = ggplot(mod.ridge.ub$results, aes(x = lambda, y = Accuracy, color = factor(alpha))) +
     geom_point() + geom_line() + scale_x_log10() +
-    labs(title = "Elastic-Net Tuning: Unbalanced Training Set",
+    labs(title = "Elastic-Net Tuning: Unbalanced Data Set",
          x = "Lambda (log scale)",
          y = "Accuracy",
          color = "Alpha") +
     theme_minimal()
+gg.en.b
+gg.en.ub
 ```
 
 ```{r}
@@ -220,8 +221,7 @@ mod.rf.ub = ranger(
 ```
 
 ```{r}
-mod.rf.b
-mod.rf.ub
+mod.rf.b;mod.rf.ub
 ```
 
 ```{r}
@@ -246,27 +246,15 @@ cm.ub = confusionMatrix(rf.ub.t, mode="everything");cm.ub
 ```
 
 ```{r}
-grid.rf = expand.grid(num.trees = c(300, 400, 500), # c(200, 300, 400, 500),
-                      mtry = c(3:5), # mtry = c(3:11)
-                      min.node.size = seq(2, 10, 2),
-                      replace = c(TRUE, FALSE),
+# num.trees = c(300, 400, 500), mtry = c(3:5),
+# num.trees = c(200, 300, 400, 500), mtry = c(3:11)
+grid.rf = expand.grid(num.trees = c(200, 300, 400, 500), mtry = c(3:11),
+                      min.node.size = seq(2, 10, 2), replace = c(TRUE, FALSE),
                       sample.fraction = c(0.5, 0.6, 0.7, 0.8, 1),
-                      OOB.misclass = NA,
-                      b_accuracy = NA,
-                      specificity = NA,
-                      precision = NA,
-                      reccall = NA,
-                      f1_score = NA,
-                      tp = NA,
-                      fp = NA,
-                      fn = NA,
-                      tn = NA)
-dim(grid.rf)
-grid.rf
-cm.cf.b$table[1,1] # TP
-cm.cf.b$table[2,1] # FP
-cm.cf.b$table[1,2] # FN
-cm.cf.b$table[2,2] # TN
+                      OOB.misclass = NA, accuracy = NA, b_accuracy = NA,
+                      specificity = NA, precision = NA, reccall = NA,
+                      f1_score = NA, tp = NA, fp = NA, fn = NA, tn = NA)
+dim(grid.rf);grid.rf
 ```
 
 ```{r}
@@ -289,6 +277,7 @@ rf.train = function(data.train) {
     test.cf = confusionMatrix(relevel(pred.test, ref="Malicious"),
               relevel(mydata.test$Classification, ref="Malicious"))
     
+    grid.rf$accuracy[I] = test.cf$overall["Accuracy"]
     grid.rf$b_accuracy[I] = test.cf$byClass["Balanced Accuracy"]
     grid.rf$specificity[I] = test.cf$byClass["Specificity"]
     grid.rf$precision[I] = test.cf$byClass["Precision"]
@@ -299,6 +288,7 @@ rf.train = function(data.train) {
     grid.rf$fn[I] = test.cf$table[1,2]
     grid.rf$tn[I] = test.cf$table[2,2]
   }
+  #Return top 10 sorted results by the OOB misclassification error
   return(grid.rf[order(grid.rf$OOB.misclass, decreasing = FALSE)[1:10],])
 }
 ```
@@ -312,38 +302,88 @@ train.rf.ub.t = rf.train(mydata.ub.train);train.rf.ub.t
 ```
 
 ```{r}
-train.rf.b
+train.rf.b;train.rf.ub.t
+```
 
-cm.vec = c(train.rf.b[1,12],train.rf.b[1,14],train.rf.b[1,13],train.rf.b[1,15])
-cm.rf.b = matrix
+```{r}
+confusion.matrix = function(train.rf){
+  cm.vec = c(train.rf[1,13],train.rf[1,15],train.rf[1,14],train.rf[1,16])
+  cm.rf = matrix(cm.vec, nrow = 2, byrow = TRUE)
+  rownames(cm.rf) = c("Malicious","Normal")
+  colnames(cm.rf) = c("Malicious","Normal")
+  cm.rf
+}
+```
+
+```{r}
+cm.rf.b = confusion.matrix(train.rf.b)
+cm.rf.ub = confusion.matrix(train.rf.ub.t)
+
+cm.rf.b.r = round(prop.table(cm.rf.b, 2), digits = 3)
+cm.rf.ub.r = round(prop.table(cm.rf.ub, 2), digits = 3)
+
+cm.rf.b;cm.rf.ub;cm.rf.b.r;cm.rf.ub.r
+```
+
+```{r}
+train.rf.b$rownum = rownames(train.rf.b)
+
+gg.rf.b = ggplot(train.rf.b, 
+       aes(x = rownum, y = OOB.misclass, color = as.factor(num.trees), 
+           shape = as.factor(min.node.size), group = 1)) + geom_point(size = 3) +
+       geom_line() +
+       geom_text(aes(label = paste("mtry:", as.character(mtry))), vjust = 1.5, size = 3) +
+       labs(title = "Random Forest: Hyperparameter Tuning/Search Strategy for balance dataset",
+       x = "Top 10 Hyperparameter Tuning/Search Grid", 
+       y = "OOB misclassification error") +
+  theme_bw()
+gg.rf.b
 ```
 
 
 ```{r}
-# cf.ub = confusionMatrix(rf.pred.ub$predictions, mydata.test$Classification)
-test.cf
-train.rf.b$test.cf
+train.rf.ub.t$rownum = rownames(train.rf.ub.t)
+
+gg.rf.ub = ggplot(train.rf.ub.t, 
+       aes(x = rownum, y = OOB.misclass, color = as.factor(num.trees), 
+           shape = as.factor(min.node.size), group = 1)) + geom_point(size = 3) +
+       geom_line() +
+       geom_text(aes(label = paste("mtry:", as.character(mtry))), vjust = 1.5, size = 3) +
+       labs(title = "Random Forest: Hyperparameter Tuning/Search Strategy for unbalance dataset",
+       x = "Top 10 Hyperparameter Tuning/Search Grid", 
+       y = "OOB misclassification error") +
+  theme_bw()
+gg.rf.ub
+```
+
+```{r}
+output.img = function(x,y) {
+  ggexport(x, filename=y ,width = 512 ,height = 384)
+}
+
+output.img(gg.en.b,"Elastic-Net-Tuning-balance.png")
+output.img(gg.en.ub,"Elastic-Net-Tuning-unbalance.png")
+output.img(gg.rf.b,"Random-Forest-Tuning-balance.png")
+output.img(gg.rf.ub,"Random-Forest-Tuning-unbalance.png")
+```
+
+```{r}
 options(scipen = 999)
-mod.ridge.b
-plot(mod.ridge.b$bestTune)
-plot(lambdas)
-plot(alphas)
-grid.rf
-ggplot
-str(cm.cf.b)
+# ?geom_line()
 cm.cf.b$table
 cm.cf.b$table[1,1] # TP
 cm.cf.b$table[2,1] # FP
 cm.cf.b$table[1,2] # FN
 cm.cf.b$table[2,2] # TN
-cm.cf.b$table[,2]
-cm.cf.b$table[2,]
-grid.rf$accuracy[1] = cm.cf.b$table[1:2] ;grid.rf$accuracy
+?confusionMatrix
+summary(mydata.test)
+
+save.image(file = "workspace.RData")
+load("workspace.RData")
 ```
 
-```{r}
-save.image(file = "workspace.RData")
-```
+
+
 
 
 
